@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inquiro"
+version = "0.1.0"
+description = "Domain-agnostic evidence research & synthesis engine powered by multi-model AI agents"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+readme = "README.md"
+keywords = ["ai", "agent", "research", "evidence", "synthesis", "multi-model", "mcp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "evomaster",
+    "pydantic>=2.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "httpx>=0.24.0",
+    "jsonschema>=4.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+llm = [
+    "openai>=1.0",
+    "anthropic[bedrock]>=0.20",
+    "google-genai>=1.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-timeout>=2.1",
+    "httpx",
+    "ruff>=0.4.0",
+    "mypy>=1.10",
+    "black>=24.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["inquiro*"]
+
+[tool.setuptools.package-data]
+inquiro = ["configs/*.yaml", "prompts/*.md", "skills/**/SKILL.md", "skills/**/references/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["inquiro/tests"]
+timeout = 60
+pythonpath = ["."]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+known_first_party = ["inquiro"]
+known_third_party = ["evomaster"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+per-file-ignores = {"inquiro/tests/**" = ["E501"], "inquiro/skills/**/scripts/**" = ["E402"]}
+
+[tool.ruff.format]
+quote-style = "double"

@@ -1,0 +1,41 @@
+# ============================================================================
+# Inquiro Service Configuration ⚙️
+# ============================================================================
+# Global service parameters for the Inquiro engine.
+# ============================================================================
+
+service:
+  host: "0.0.0.0"
+  port: 8100
+  log_level: INFO
+  workers: 1
+
+# CORS allowed origins 🌐
+# Override via CORS_ALLOWED_ORIGINS env var (comma-separated).
+# Default: localhost development origins only.
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+    - "http://127.0.0.1:3000"
+    - "http://127.0.0.1:8080"
+
+# Cost budget defaults 💰
+cost:
+  default_max_per_task: 1.5
+  default_max_total: 10.0
+  overspend_strategy: soft_stop
+
+# Quality gate defaults 🔍
+quality_gate:
+  default_max_retries: 2
+  schema_validation: true
+  evidence_check: true
+  checklist_coverage_min: 0.6
+  confidence_threshold: 0.5
+
+# Execution limits ⏱️
+execution:
+  max_concurrent_tasks: 10
+  default_timeout_seconds: 300
+  max_rounds: 5

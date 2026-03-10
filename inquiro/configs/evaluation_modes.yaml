@@ -1,0 +1,63 @@
+# ============================================================================
+# Inquiro Evaluation Modes Configuration 🎚️
+# ============================================================================
+# Predefined execution profiles for the Inquiro evidence research engine.
+# Each mode tunes agent behavior, quality gates, and cost budgets for
+# different speed/depth trade-offs.
+#
+# Usage:
+#   mode_resolver.resolve_mode("standard")  -> ModeConfig for balanced work
+#   mode_resolver.resolve_mode("discovery") -> ModeConfig for thorough research
+#
+# The "standard" mode is used as the default when no mode is specified.
+# ============================================================================
+
+# 🔑 Default mode used when caller does not specify one.
+default_mode: standard
+
+modes:
+  # ──────────────────────────────────────────────────────────────────────────
+  # ⚖️ Standard Mode — Balanced research (~30 min)
+  # ──────────────────────────────────────────────────────────────────────────
+  # Best for: Regular evaluations, production workloads, initial scans.
+  # Trade-off: Moderate depth with one QG retry for reliability.
+  standard:
+    description: "Balanced research with moderate depth and one retry"
+    agent_config:
+      max_turns: 15               # 🔄 Moderate LLM round-trips
+      timeout_seconds: 600        # ⏱️ 10-minute timeout (15 turns × ~30s/turn)
+      temperature: 0.3            # 🌡️ Balanced creativity/consistency
+    quality_gate:
+      enabled: true               # ✅ Full quality validation
+      max_retries: 1              # 🔁 One retry on hard failures
+      checks:
+        schema_validation: true   # 🔒 Always validate output schema
+        coverage_check: true      # 📋 Check checklist coverage
+        evidence_reference_check: true  # 🔗 Verify evidence references
+        source_diversity_check: true    # 🌐 Enforce multi-source evidence
+    cost_guard:
+      max_cost_per_task: 3.0      # 💰 Moderate budget ($3 max)
+      overspend_strategy: "SoftStop"  # ⚠️ Finish current round then stop
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 🔬 Discovery Mode — Thorough research (~3 hours)
+  # ──────────────────────────────────────────────────────────────────────────
+  # Best for: Critical decisions, high-stakes evaluations, audits.
+  # Trade-off: Maximum depth and multiple retries at higher cost.
+  discovery:
+    description: "Thorough research with maximum depth and multiple retries"
+    agent_config:
+      max_turns: 30               # 🔄 Maximum LLM round-trips
+      timeout_seconds: 900        # ⏱️ 15-minute timeout (30 turns × ~30s/turn)
+      temperature: 0.2            # 🌡️ Lower temperature for precision
+    quality_gate:
+      enabled: true               # ✅ Full quality validation
+      max_retries: 2              # 🔁 Two retries for maximum reliability
+      checks:
+        schema_validation: true   # 🔒 Always validate output schema
+        coverage_check: true      # 📋 Check checklist coverage
+        evidence_reference_check: true  # 🔗 Verify evidence references
+        source_diversity_check: true    # 🌐 Enforce multi-source evidence
+    cost_guard:
+      max_cost_per_task: 10.0     # 💰 Generous budget ($10 max)
+      overspend_strategy: "SoftStop"  # ⚠️ Finish current round then stop

@@ -1,0 +1,552 @@
+# ============================================================================
+# Inquiro MCP Server Configuration 🔌
+# ============================================================================
+# Declares available MCP servers and their tools.
+# All secrets MUST use ${ENV_VAR} interpolation — never hardcode API keys.
+#
+# Inquiro is DOMAIN-AGNOSTIC: no pharma/drug/target concepts here.
+# Tools are generic data retrieval and search capabilities.
+# ============================================================================
+
+mcp_servers:
+  # --------------------------------------------------------------------------
+  # Perplexity — AI-powered web search 🌐
+  # --------------------------------------------------------------------------
+  perplexity:
+    enabled: true
+    transport: stdio
+    command: "uvx"
+    args: ["--from", "perplexity-mcp", "perplexity-mcp"]
+    description: "AI-powered web search with recency filtering and citations"
+    use_when: "need broad web search, recent news, general knowledge, or cross-domain information not found in specialized databases"
+    differs_from: "Unlike biomcp/bohrium (structured DB queries), perplexity provides AI-synthesized web answers with source URLs"
+    domains: ["general", "news", "cross-domain"]
+    env:
+      PERPLEXITY_API_KEY: "${PERPLEXITY_API_KEY}"
+    timeout_seconds: 45
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      timeout_seconds: 90
+      recovery_timeout: 45
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: perplexity_search_web
+        enabled: true
+        description: "Search the web using Perplexity AI with recency filtering and citations"
+
+  # --------------------------------------------------------------------------
+  # Brave Search — General web/news/local/media search 🔎
+  # --------------------------------------------------------------------------
+  # Official MCP server: https://github.com/brave/brave-search-mcp-server
+  # npm package: @brave/brave-search-mcp-server
+  brave:
+    enabled: true
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@brave/brave-search-mcp-server", "--brave-api-key", "${BRAVE_SEARCH_API_KEY}"]
+    description: "General-purpose search over web, news, local, images, and videos"
+    use_when: "need broad web discovery, recent news coverage, local/business lookup, or media-oriented search results"
+    differs_from: "Unlike perplexity (AI-synthesized answers), brave returns direct search results; unlike biomcp/bohrium, it is not biomedical-literature-specific"
+    domains: ["general", "news", "cross-domain"]
+    timeout_seconds: 45
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      timeout_seconds: 90
+      recovery_timeout: 45
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: brave_web_search
+        enabled: true
+        description: "Search the web and return ranked result snippets with source URLs"
+      - name: brave_news_search
+        enabled: true
+        description: "Search news-focused sources for recent coverage"
+      - name: brave_local_search
+        enabled: false
+        description: "Search local places and business information"
+      - name: brave_image_search
+        enabled: false
+        description: "Search image results for visual references"
+      - name: brave_video_search
+        enabled: false
+        description: "Search video results across major platforms"
+      - name: brave_summarizer
+        enabled: false
+        description: "Generate concise summaries from Brave search context"
+
+  # --------------------------------------------------------------------------
+  # BioMCP — Biomedical literature, clinical trials, gene/drug data 📚
+  # --------------------------------------------------------------------------
+  # Phase 1 Core source. Real package: biomcp-python (PyPI), NOT the stub "biomcp".
+  # GitHub: https://github.com/genomoncology/biomcp (v0.7.1, 35 tools)
+  # Provides unified access to PubMed/PubTator3, ClinicalTrials.gov, NCI CTS,
+  # MyGene/MyDisease/MyChem, MyVariant, OpenFDA (FAERS, labels, devices, recalls).
+  biomcp:
+    enabled: true
+    transport: stdio
+    command: "uvx"
+    args: ["--from", "biomcp-python", "biomcp", "run"]
+    description: "Unified biomedical data: PubMed literature, clinical trials, genes, drugs, diseases, variants, and FDA records"
+    use_when: "need peer-reviewed literature, clinical trial data, gene/drug/disease relationships, variant annotations, or FDA adverse event reports"
+    differs_from: "Unlike perplexity (web search), biomcp provides structured database queries to PubMed, ClinicalTrials.gov, and FDA; unlike bohrium, it returns raw records rather than AI-ranked summaries"
+    domains: ["clinical", "academic", "regulatory"]
+    timeout_seconds: 45
+    max_retries: 3
+    circuit_breaker:
+      failure_threshold: 5
+      timeout_seconds: 90
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      # 🔍 Core tools
+      - name: search
+        enabled: true
+        description: "Unified search across biomedical literature, trials, variants, genes, drugs, diseases"
+      - name: fetch
+        enabled: true
+        description: "Fetch comprehensive details for a specific biomedical record by ID"
+      - name: think
+        enabled: true
+        description: "Structured sequential reasoning for biomedical research planning"
+      # 📄 Article tools (PubMed/PubTator3)
+      - name: article_searcher
+        enabled: true
+        description: "Search PubMed/PubTator3 for research articles and preprints"
+      - name: article_getter
+        enabled: true
+        description: "Fetch full article details by PMID or DOI"
+      # 🏥 Clinical trial tools (ClinicalTrials.gov)
+      - name: trial_searcher
+        enabled: true
+        description: "Search ClinicalTrials.gov for clinical studies"
+      - name: trial_getter
+        enabled: true
+        description: "Fetch comprehensive clinical trial details by NCT ID"
+      # 🧬 Variant tools (MyVariant.info)
+      - name: variant_searcher
+        enabled: true
+        description: "Search MyVariant.info for genetic variant records"
+      - name: variant_getter
+        enabled: true
+        description: "Fetch comprehensive variant details including clinical significance"
+      # 🧪 Gene/Disease/Drug tools (BioThings suite)
+      - name: gene_getter
+        enabled: true
+        description: "Get detailed gene information from MyGene.info"
+      - name: disease_getter
+        enabled: true
+        description: "Get detailed disease information from MyDisease.info"
+      - name: drug_getter
+        enabled: true
+        description: "Get detailed drug/chemical information from MyChem.info"
+      # 💊 OpenFDA tools (adverse events, labels, devices, approvals, recalls)
+      - name: openfda_adverse_searcher
+        enabled: true
+        description: "Search FDA adverse event reports (FAERS) for drug safety"
+      - name: openfda_label_searcher
+        enabled: true
+        description: "Search FDA drug product labels for prescribing information"
+      - name: openfda_approval_searcher
+        enabled: true
+        description: "Search FDA drug approval records from Drugs@FDA"
+
+  # --------------------------------------------------------------------------
+  # Fetch MCP — Web page content extraction 🌐
+  # --------------------------------------------------------------------------
+  # Anthropic official MCP server. Fetches a specific URL and converts
+  # HTML to markdown for LLM consumption. Complements search servers.
+  fetch:
+    enabled: true
+    transport: stdio
+    command: "uvx"
+    args: ["mcp-server-fetch"]
+    description: "Fetch web page content and convert HTML to markdown for LLM consumption"
+    use_when: "need to read full content of a specific URL (paper page, FDA notice, drug label, company pipeline)"
+    differs_from: "Perplexity/Brave return search results; Fetch reads a specific URL's full content"
+    domains: ["general", "clinical", "academic"]
+    timeout_seconds: 30
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 30
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: fetch
+        enabled: true
+        description: "Fetch a URL and extract its content as markdown. Use start_index for pagination."
+
+  # --------------------------------------------------------------------------
+  # OpenTargets — Official Platform MCP 🎯
+  # --------------------------------------------------------------------------
+  # Official Open Targets MCP server (replaces nickzren community version).
+  # Uses GraphQL API for flexible, quantitative evidence queries.
+  opentargets:
+    enabled: true
+    transport: stdio
+    command: "uvx"
+    args: ["--from", "git+https://github.com/opentargets/open-targets-platform-mcp", "otp-mcp", "--transport", "stdio"]
+    description: "Official Open Targets Platform MCP — genetic evidence, target-disease associations, tractability, safety"
+    use_when: "need genetic association scores, druggability assessment, target safety, or target-disease evidence"
+    differs_from: "BioMCP has gene/disease entity lookups; OpenTargets provides curated quantitative evidence scores and GraphQL flexibility"
+    domains: ["clinical", "target"]
+    timeout_seconds: 45
+    max_retries: 2
+    persistent: true
+    max_reconnect_attempts: 5
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: search_entities
+        enabled: true
+        description: "Find targets, diseases, drugs, variants by name or keyword"
+      - name: query_open_targets_graphql
+        enabled: true
+        description: "Execute custom GraphQL queries against the Open Targets API"
+      - name: batch_query_open_targets_graphql
+        enabled: true
+        description: "Run the same GraphQL query multiple times with different parameters"
+      - name: get_open_targets_graphql_schema
+        enabled: true
+        description: "Access the complete Open Targets GraphQL schema documentation"
+
+  # --------------------------------------------------------------------------
+  # paper-search — Multi-source academic search aggregator 📄
+  # --------------------------------------------------------------------------
+  # Searches arXiv, PubMed, bioRxiv, medRxiv, Google Scholar,
+  # Semantic Scholar simultaneously via native APIs.
+  paper-search:
+    enabled: true
+    transport: stdio
+    command: "uv"
+    args: ["run", "--no-project", "--with", "paper-search-mcp", "python", "-m", "paper_search_mcp.server"]
+    description: "Multi-source academic paper search across arXiv, PubMed, bioRxiv, medRxiv, Google Scholar, Semantic Scholar"
+    use_when: "need broad academic literature search across multiple preprint and journal databases simultaneously"
+    differs_from: "Bohrium uses AI ranking on its own platform; paper-search covers 7 raw academic sources with native APIs"
+    domains: ["academic", "clinical"]
+    env:
+      SEMANTIC_SCHOLAR_API_KEY: "${SEMANTIC_SCHOLAR_API_KEY:-}"
+    timeout_seconds: 60
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: search_arxiv
+        enabled: true
+        description: "Search arXiv preprints by keyword"
+      - name: search_pubmed
+        enabled: true
+        description: "Search PubMed biomedical literature"
+      - name: search_biorxiv
+        enabled: true
+        description: "Search bioRxiv biology preprints"
+      - name: search_medrxiv
+        enabled: true
+        description: "Search medRxiv health sciences preprints"
+      - name: search_semantic_scholar
+        enabled: true
+        description: "Search Semantic Scholar with citation data"
+      - name: search_google_scholar
+        enabled: true
+        description: "Search Google Scholar academic literature"
+
+  # --------------------------------------------------------------------------
+  # PubMed MCP — Deep PubMed + citation network analysis 📚
+  # --------------------------------------------------------------------------
+  # Advanced PubMed access with article metadata, citation networks,
+  # and structured research plan generation.
+  pubmed:
+    enabled: true
+    transport: stdio
+    command: "npx"
+    args: ["@cyanheads/pubmed-mcp-server"]
+    description: "Deep PubMed access with article search, full metadata retrieval, citation network analysis"
+    use_when: "need detailed PubMed article data, citation networks to trace evidence chains, or structured research plans"
+    differs_from: "BioMCP article_searcher is basic search; this provides citation networks and related article discovery"
+    domains: ["academic", "clinical"]
+    env:
+      NCBI_API_KEY: "${NCBI_API_KEY:-}"
+    timeout_seconds: 45
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 45
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: pubmed_search_articles
+        enabled: true
+        description: "Search PubMed with advanced filters, date ranges, and MeSH terms"
+      - name: pubmed_fetch_contents
+        enabled: true
+        description: "Retrieve detailed article metadata in multiple formats (JSON, BibTeX, RIS)"
+      - name: pubmed_article_connections
+        enabled: true
+        description: "Find related articles and citation network for evidence chain tracing"
+      - name: pubmed_research_agent
+        enabled: true
+        description: "Generate structured JSON research plan from a query"
+
+  # --------------------------------------------------------------------------
+  # ClinicalTrials.gov MCP — Professional clinical trial analysis 🏥
+  # --------------------------------------------------------------------------
+  # ClinicalTrials.gov v2 API with study outcomes, adverse events,
+  # trend analysis, and trial-vs-trial comparison.
+  clinicaltrials:
+    enabled: true
+    transport: stdio
+    command: "npx"
+    args: ["clinicaltrialsgov-mcp-server@latest"]
+    description: "ClinicalTrials.gov v2 API — search, compare, analyze trends, get outcomes and adverse events"
+    use_when: "need clinical trial data: search trials, get study results/outcomes, compare trials, analyze trends across studies"
+    differs_from: "BioMCP trial_searcher is basic search; this provides study outcomes, adverse events, trend analysis, and trial comparison"
+    domains: ["clinical"]
+    timeout_seconds: 60
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: clinicaltrials_search_studies
+        enabled: true
+        description: "Query trials with filters, sorting, and geographic proximity"
+      - name: clinicaltrials_get_study
+        enabled: true
+        description: "Fetch 1-5 studies by NCT ID with full or summary data"
+      - name: clinicaltrials_get_study_results
+        enabled: true
+        description: "Retrieve outcomes, adverse events, and baseline characteristics"
+      - name: clinicaltrials_analyze_trends
+        enabled: true
+        description: "Statistical aggregation across up to 5000 studies"
+      - name: clinicaltrials_compare_studies
+        enabled: true
+        description: "Side-by-side comparison of 2-5 clinical trials"
+
+  # --------------------------------------------------------------------------
+  # ChEMBL MCP — Compound/drug activity database 💊
+  # --------------------------------------------------------------------------
+  # Augmented-Nature ChEMBL server. Local build required:
+  #   bash mcp_servers/setup_node_servers.sh
+  chembl:
+    enabled: true
+    transport: stdio
+    command: "node"
+    args: ["mcp_servers/chembl/build/index.js"]
+    description: "ChEMBL chemical database — compound search, target activity, drug status, mechanism of action"
+    use_when: "need compound/drug activity data, target-compound relationships, mechanism of action, or drug development status"
+    differs_from: "PubChem has broader compound coverage; ChEMBL has deeper bioactivity assay data and drug development info"
+    domains: ["chemical", "target"]
+    timeout_seconds: 45
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: search_compounds
+        enabled: true
+        description: "Search ChEMBL for compounds by name, SMILES, or InChI"
+      - name: get_compound_info
+        enabled: true
+        description: "Get detailed compound information and properties"
+      - name: search_targets
+        enabled: true
+        description: "Search for biological targets in ChEMBL"
+      - name: get_target_info
+        enabled: true
+        description: "Get detailed target information"
+      - name: target_compounds
+        enabled: true
+        description: "Find compounds active against a specific target"
+      - name: search_drugs
+        enabled: true
+        description: "Search for approved/clinical drugs"
+      - name: drug_status
+        enabled: true
+        description: "Get drug development and approval status"
+      - name: mechanism_of_action
+        enabled: true
+        description: "Get mechanism of action for a drug or compound"
+      - name: search_activities
+        enabled: true
+        description: "Search bioactivity data (IC50, EC50, Ki)"
+      - name: similarity_search
+        enabled: true
+        description: "Find structurally similar compounds"
+
+  # --------------------------------------------------------------------------
+  # UniProt MCP — Protein function and structure database 🧬
+  # --------------------------------------------------------------------------
+  # Augmented-Nature UniProt server. Local build required:
+  #   bash mcp_servers/setup_node_servers.sh
+  uniprot:
+    enabled: true
+    transport: stdio
+    command: "node"
+    args: ["mcp_servers/uniprot/build/index.js"]
+    description: "UniProt protein database — protein function, domains, variants, interactions, pathways"
+    use_when: "need protein-level evidence: function annotations, domain analysis, disease variants, interaction networks"
+    differs_from: "OpenTargets has target-level genetic associations; UniProt provides detailed protein structure/function data"
+    domains: ["target"]
+    timeout_seconds: 45
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: search_proteins
+        enabled: true
+        description: "Search UniProt protein database by name, keyword, or organism"
+      - name: get_protein_info
+        enabled: true
+        description: "Get comprehensive protein details (function, domains, expression)"
+      - name: search_by_gene
+        enabled: true
+        description: "Find proteins by gene name or symbol"
+      - name: get_protein_features
+        enabled: true
+        description: "Access protein domains, active sites, and functional features"
+      - name: variant_analysis
+        enabled: true
+        description: "Analyze disease-associated protein variants and mutations"
+      - name: protein_interactions
+        enabled: true
+        description: "Get protein-protein interaction network data"
+      - name: pathway_integration
+        enabled: true
+        description: "Get KEGG/Reactome pathway associations for a protein"
+
+  # --------------------------------------------------------------------------
+  # PubChem MCP — Chemical compound + toxicity database 🧪
+  # --------------------------------------------------------------------------
+  # Augmented-Nature PubChem server. Local build required:
+  #   bash mcp_servers/setup_node_servers.sh
+  pubchem:
+    enabled: true
+    transport: stdio
+    command: "node"
+    args: ["mcp_servers/pubchem/build/index.js"]
+    description: "PubChem database — 110M+ compounds, molecular properties, bioassays, safety/toxicity data"
+    use_when: "need chemical compound data, molecular properties, bioassay results, safety/toxicity profiles"
+    differs_from: "ChEMBL focuses on drug-like compounds and bioactivity; PubChem has broader coverage including safety and toxicity"
+    domains: ["chemical", "target"]
+    timeout_seconds: 45
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 3
+    tools:
+      - name: search_compounds
+        enabled: true
+        description: "Search PubChem compounds by name, SMILES, InChI, or CAS number"
+      - name: get_compound_info
+        enabled: true
+        description: "Get detailed compound information and identifiers"
+      - name: get_compound_properties
+        enabled: true
+        description: "Get molecular properties and descriptors"
+      - name: search_by_target
+        enabled: true
+        description: "Find compounds with activity against a specific biological target"
+      - name: get_safety_data
+        enabled: true
+        description: "Get compound safety and hazard information"
+      - name: get_toxicity_info
+        enabled: true
+        description: "Get toxicity data and risk assessments"
+      - name: search_bioassays
+        enabled: true
+        description: "Search PubChem bioassay database for activity data"
+
+  # --------------------------------------------------------------------------
+  # Bohrium — AI-powered academic literature search 📖
+  # --------------------------------------------------------------------------
+  # Provides access to Bohrium's Paper Engine (keyword search with AI ranking)
+  # and Sigma Search (AI-powered multi-turn literature research sessions).
+  # Requires BOHRIUM_API_KEY environment variable.
+  bohrium:
+    enabled: false
+    transport: stdio
+    command: "python"
+    args: ["mcp_servers/bohrium/server.py"]
+    description: "AI-powered academic literature search with Paper Engine (keyword search + AI ranking) and Sigma Search (multi-turn AI research sessions with summaries and citations)"
+    use_when: "need comprehensive academic literature search, AI-ranked paper discovery, or structured literature review summaries on specific research topics"
+    differs_from: "Unlike biomcp (raw PubMed records), bohrium provides AI-ranked results with quality scores and multi-turn research sessions; unlike perplexity (general web), focused on academic literature"
+    domains: ["academic", "clinical"]
+    env:
+      BOHRIUM_API_KEY: "${BOHRIUM_API_KEY}"
+    timeout_seconds: 120
+    max_retries: 2
+    circuit_breaker:
+      failure_threshold: 3
+      timeout_seconds: 120
+      recovery_timeout: 60
+      success_threshold: 1
+      half_open_max_calls: 2
+    tools:
+      # 🔍 Paper Engine — keyword-based paper search
+      - name: bohrium_search_papers
+        enabled: true
+        description: "Search academic papers by keyword with AI quality ranking. Returns titles, DOIs, abstracts, citation counts, and impact factors. Supports markdown/json output. Fast, best for specific keyword lookup."
+      - name: bohrium_search_papers_enhanced
+        enabled: true
+        description: "Enhanced paper search with AI sub-question decomposition and reranking. Supports markdown/json output. Best for complex research questions and literature reviews."
+      # 🤖 Sigma Search — AI-powered research sessions
+      - name: bohrium_create_session
+        enabled: true
+        description: "Create an AI-powered multi-turn research session. Returns session UUID and initial query ID with next-step instructions."
+      - name: bohrium_get_session_details
+        enabled: true
+        description: "Get session details including all question IDs, statuses, and latest query ID for summaries and papers."
+      - name: bohrium_get_session_papers
+        enabled: true
+        description: "Get papers found for a Sigma Search question, ranked by AI relevance. Supports sorting and markdown/json output."
+      - name: bohrium_get_ai_summary
+        enabled: true
+        description: "Get AI-generated literature review summary with citations from a Sigma Search question."
+      - name: bohrium_ask_followup
+        enabled: true
+        description: "Ask follow-up questions in an existing research session for deeper investigation. Returns new query ID."
+      - name: bohrium_list_sessions
+        enabled: true
+        description: "List all previous Sigma Search sessions with UUIDs and statuses."
+
+  # --------------------------------------------------------------------------
+  # Custom HTTP MCP server (placeholder) 🌐
+  # --------------------------------------------------------------------------
+  custom_http_server:
+    enabled: false
+    transport: http
+    endpoint: "${CUSTOM_MCP_ENDPOINT:-http://localhost:9000/mcp}"
+    description: "Custom HTTP-based MCP server for project-specific data sources"
+    use_when: "need access to project-specific or proprietary data sources not covered by other servers"
+    differs_from: "Project-specific data not available in any standard server"
+    domains: ["general"]
+    api_key_env: "CUSTOM_MCP_API_KEY"
+    timeout_seconds: 30
+    circuit_breaker:
+      failure_threshold: 3
+      timeout_seconds: 60
+    tools:
+      - name: custom_search
+        enabled: true
+        description: "Custom search endpoint"

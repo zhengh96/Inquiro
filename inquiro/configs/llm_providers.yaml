@@ -1,0 +1,105 @@
+# ============================================================================
+# Inquiro LLM Provider Configuration 🤖
+# ============================================================================
+# Defines available LLM providers and their connection parameters.
+# All secrets MUST use ${ENV_VAR} interpolation — never hardcode API keys.
+#
+# Provider types supported:
+#   - openai: OpenAI API and compatible endpoints (litellm routing)
+#   - bedrock: AWS Bedrock (Anthropic Claude via AWS SigV4)
+#
+# Naming convention: <model-family> for primary, <model-family>-backup for
+# fallback providers. The ensemble layer selects from available providers.
+#
+# .env variable mapping:
+#   AZURE_API_KEY / AZURE_PROXY_URL         → gpt-5 (primary Azure)
+#   OPENAI_API_KEY / OPENAI_BASE_URL        → gpt-5-backup (DPT gateway)
+#   GEMINI_API_KEY / GEMINI_PROXY_URL       → gemini-3-pro (primary proxy)
+#   GEMINI_BACKUP_API_KEY / GEMINI_BACKUP_BASE_URL → gemini-backup (AI Studio)
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY → claude-bedrock (Bedrock)
+# ============================================================================
+
+providers:
+  # --------------------------------------------------------------------------
+  # Claude Sonnet 4.5 (AWS Bedrock) — Primary reasoning model 🧠
+  # --------------------------------------------------------------------------
+  # Uses AWS SigV4 auth. Credentials from env vars or ~/.aws/credentials.
+  claude-bedrock:
+    provider: bedrock
+    model_id: "${CLAUDE_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}"
+    aws_region: "${AWS_REGION:-us-east-1}"
+    aws_access_key_id: "${AWS_ACCESS_KEY_ID}"
+    aws_secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 300
+
+  # --------------------------------------------------------------------------
+  # GPT-5.2 (DPT Gateway) — Primary OpenAI model 🚀
+  # --------------------------------------------------------------------------
+  # DPT gateway handles Azure routing internally for azure/ model prefix.
+  gpt-5:
+    provider: openai
+    model_id: "${OPENAI_MODEL_ID:-azure/gpt-5.2}"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+    temperature: 1.0
+    max_tokens: 8192
+    timeout: 300
+
+  # --------------------------------------------------------------------------
+  # GPT-5.2 (Azure Serverless) — Backup via Azure AI Model Catalog 🔄
+  # --------------------------------------------------------------------------
+  # Azure serverless endpoints use /openai/v1 path and require
+  # max_completion_tokens (NOT max_tokens). Set AZURE_PROXY_URL to:
+  #   https://your-resource.openai.azure.com/openai/v1
+  gpt-5-azure:
+    provider: openai
+    model_id: "gpt-5.2"
+    api_key: "${AZURE_API_KEY}"
+    base_url: "${AZURE_PROXY_URL}/openai/v1"
+    temperature: 1.0
+    # ⚠️ Azure GPT-5.2 serverless rejects max_tokens; omit to avoid 400.
+    # Token limit handled by Azure's default (16384).
+    timeout: 300
+
+  # --------------------------------------------------------------------------
+  # Gemini 3 Pro (OpenAI-compatible proxy) — Primary Gemini model 💎
+  # --------------------------------------------------------------------------
+  gemini-3-pro:
+    provider: openai
+    model_id: "${GEMINI_MODEL:-gemini-3-pro}"
+    api_key: "${GEMINI_API_KEY}"
+    base_url: "${GEMINI_PROXY_URL}"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 300
+
+  # --------------------------------------------------------------------------
+  # Gemini 3 Flash (OpenAI-compatible proxy) — Fast & cheap Gemini model ⚡
+  # --------------------------------------------------------------------------
+  # Lightweight model ideal for translation, classification, and other
+  # high-throughput tasks where latency and cost matter more than reasoning.
+  gemini-3-flash:
+    provider: openai
+    model_id: "${GEMINI_FLASH_MODEL:-gemini-3-flash}"
+    api_key: "${GEMINI_API_KEY}"
+    base_url: "${GEMINI_PROXY_URL}"
+    temperature: 0.2
+    max_tokens: 8192
+    timeout: 120
+
+  # --------------------------------------------------------------------------
+  # Gemini Backup (AI Studio direct) — Fallback Gemini endpoint 🔄
+  # --------------------------------------------------------------------------
+  gemini-backup:
+    provider: openai
+    model_id: "${GEMINI_BACKUP_MODEL:-gemini-2.5-flash}"
+    api_key: "${GEMINI_BACKUP_API_KEY}"
+    base_url: "${GEMINI_BACKUP_BASE_URL}"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 300
+
+# Default model used when no specific model is requested
+default_model: claude-bedrock

@@ -1,0 +1,4 @@
+# Runtime-injected expansion guides from external sources
+# These are copied from targetmaster/configs/alias_expansion/ via
+# INQUIRO_EXTERNAL_SKILL_REFS at server startup. Do NOT commit.
+*.md

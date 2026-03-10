@@ -1,0 +1,105 @@
+# Evidence Source Classification Patterns
+#
+# This file is the authoritative source for all URL classification regex
+# patterns and noise filter substrings used by EvidencePipeline.
+#
+# Edit this file to extend source coverage without modifying Python code.
+# All regex patterns are compiled with re.IGNORECASE.
+# Noise patterns are plain substrings matched case-insensitively.
+#
+# See SKILL.md for guidance on adding new patterns.
+
+# ---------------------------------------------------------------------------
+# Noise patterns — plain substrings that identify garbage MCP output.
+# Order does not matter; any match discards the evidence item.
+# ---------------------------------------------------------------------------
+noise_patterns:
+  - "AI Search Session Created"
+  - "No papers found"
+  - "Follow-up Question Submitted"
+  - "No relevant results"
+  - "Search session expired"
+  - "Connection timed out"
+  - "Error fetching results"
+  - "Rate limit exceeded"
+  - "Please try again"
+  - "No results found for"
+  - "Unable to process"
+  - "Session ID:"
+  # API and search count noise patterns
+  - "Bohrium API error:"
+  - "API error:"
+  - "Found **"      # Markdown bold count (e.g., "Found **13** papers.")
+  - "\U0001F50D Found"   # 🔍 Search count with magnifying glass emoji
+  - "\U0001F4DA Found"   # 📚 Search count with books emoji
+  # Error patterns synced from EvidenceFilter (evidence_filter.py)
+  - "Error executing tool"
+  - "Error:"
+  - "Input validation error:"
+  - "validation error"
+  - "not found in "
+  - "Unknown tool:"
+  # Emoji status markers (not actual evidence)
+  - "\u2705 "   # ✅
+  - "\U0001F916 "  # 🤖
+  # MCP protocol errors (e.g., "MCP error -32602: Invalid arguments")
+  - "MCP error"
+  # Empty search results from web search MCP tools
+  - "No web results found"
+
+# ---------------------------------------------------------------------------
+# Source classification — URL regex patterns mapped to EvidenceTag values.
+#
+# Evaluation order: academic → patent → clinical_trial → regulatory.
+# First match wins; unmatched URLs receive EvidenceTag.OTHER.
+# ---------------------------------------------------------------------------
+source_classification:
+
+  academic:
+    url_patterns:
+      - "pubmed\\.ncbi\\.nlm\\.nih\\.gov"
+      - "pmc\\.ncbi\\.nlm\\.nih\\.gov"
+      - "doi\\.org"
+      - "frontiersin\\.org"
+      - "nature\\.com"
+      - "sciencedirect\\.com"
+      - "springer\\.com"
+      - "wiley\\.com"
+      - "cell\\.com"
+      - "acs\\.org"
+      - "biorxiv\\.org"
+      - "medrxiv\\.org"
+      - "scholar\\.google\\.com"
+      - "ncbi\\.nlm\\.nih\\.gov/books"
+      - "academic\\.oup\\.com"
+      - "pnas\\.org"
+      - "science\\.org"
+      - "thelancet\\.com"
+      - "bmj\\.com"
+      - "nejm\\.org"
+      - "jama\\.jamanetwork\\.com"
+
+  patent:
+    url_patterns:
+      - "patents\\.google\\.com"
+      - "uspto\\.gov"
+      - "epo\\.org"
+      - "patentscope\\.wipo\\.int"
+      - "lens\\.org/lens/patent"
+
+  clinical_trial:
+    url_patterns:
+      - "clinicaltrials\\.gov"
+      - "centerwatch\\.com"
+      - "who\\.int/clinical-trials"
+      - "isrctn\\.com"
+      - "anzctr\\.org"
+      - "eu-clinical-trials"
+
+  regulatory:
+    url_patterns:
+      - "fda\\.gov"
+      - "ema\\.europa\\.eu"
+      - "pmda\\.go\\.jp"
+      - "accessdata\\.fda\\.gov"
+      - "drugs\\.com/.*fda"   # FDA regulatory content hosted on aggregator

@@ -1,0 +1,5 @@
+# Runtime-injected reference files from external sources
+# These are copied from targetmaster/configs/query_templates/ via
+# INQUIRO_EXTERNAL_SKILL_REFS at server startup. Do NOT commit.
+*.md
+!_template.md

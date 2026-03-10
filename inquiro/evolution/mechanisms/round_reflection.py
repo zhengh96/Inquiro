@@ -1,0 +1,499 @@
+"""RoundReflectionMechanism — Reflexion-style inter-round self-critique 🪞.
+
+Generates structured round reflections after each search round
+(starting from Round 1), then injects the latest reflection into
+the next round's focus prompt as strategic guidance.
+
+Cost: 1 lightweight LLM call per round (~$0.02 Haiku pricing).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from inquiro.evolution.mechanisms.base import BaseMechanism
+from inquiro.evolution.types import (
+    Experience,
+    MechanismType,
+    ReflectionRecord,
+    TrajectorySnapshot,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# ✨ Public API
+# ============================================================================
+
+__all__ = ["RoundReflectionMechanism"]
+
+
+# ============================================================================
+# 📝 Default Prompt Template
+# ============================================================================
+
+_DEFAULT_REFLECTION_PROMPT = """\
+You are analyzing the results of search round {round_num} for a research task.
+
+## Round {round_num} Summary
+- Evidence collected: {evidence_count}
+- Coverage achieved: {coverage:.0%}
+- Tools used: {tool_summary}
+{previous_reflections_section}
+## Task
+
+Analyze this round and provide a structured reflection in JSON format.
+Your analysis must be concise (<= 200 tokens output) and actionable.
+
+{{
+  "what_worked": "Brief description of effective strategies observed in this round",
+  "what_failed": "Brief description of ineffective approaches or missed opportunities",
+  "strategy": "Specific strategic adjustment for the next search round",
+  "tool_recommendations": {{"tool_name": "increase|decrease|maintain"}},
+  "priority_gaps": ["gap_item_1", "gap_item_2", "gap_item_3"]
+}}
+
+## Guidelines
+
+- what_worked: Focus on query formulations or tools that yielded high-quality evidence.
+- what_failed: Note queries with low yield, irrelevant results, or duplicated effort.
+- strategy: Propose ONE specific change (new angle, unexplored source, refined query).
+- tool_recommendations: Only list tools where usage should change.
+- priority_gaps: List up to 5 specific topics or questions that remain uncovered.
+
+Be concise and actionable. Focus on what to change, not what to repeat.\
+"""
+
+
+# ============================================================================
+# 🪞 RoundReflectionMechanism
+# ============================================================================
+
+
+class RoundReflectionMechanism(BaseMechanism):
+    """Reflexion-style inter-round self-critique 🪞.
+
+    After each round (starting from Round 1), generates a structured
+    reflection analyzing what worked, what failed, and strategic
+    adjustments. The reflection is injected into the next round's
+    focus prompt.
+
+    Cost: 1 lightweight LLM call per round (~$0.02 Haiku pricing).
+
+    Attributes:
+        enabled: Whether this mechanism is currently active.
+    """
+
+    def __init__(
+        self,
+        llm_fn: Callable[[str], Awaitable[str]],
+        reflection_prompt_template: str | None = None,
+        *,
+        enabled: bool = True,
+    ) -> None:
+        """Initialize RoundReflectionMechanism 🔧.
+
+        Args:
+            llm_fn: Async callable that takes a prompt string and returns
+                the LLM response string. Use a lightweight model
+                (e.g., Haiku) to minimize cost.
+            reflection_prompt_template: Optional custom prompt template.
+                Defaults to the built-in template. Must contain format
+                placeholders: {round_num}, {evidence_count}, {coverage},
+                {tool_summary}, {previous_reflections_section}.
+            enabled: Whether this mechanism is active. Disabled mechanisms
+                skip all lifecycle hooks and return empty results.
+        """
+        super().__init__(enabled=enabled)
+        self._llm_fn = llm_fn
+        self._prompt_template = reflection_prompt_template or _DEFAULT_REFLECTION_PROMPT
+        self._reflections: list[ReflectionRecord] = []
+        self._latest_reflection: ReflectionRecord | None = None
+
+    @property
+    def mechanism_type(self) -> MechanismType:
+        """Return ROUND_REFLECTION mechanism type 🏷️.
+
+        Returns:
+            MechanismType.ROUND_REFLECTION
+        """
+        return MechanismType.ROUND_REFLECTION
+
+    async def produce(
+        self,
+        snapshot: TrajectorySnapshot,
+        round_context: dict[str, Any],
+    ) -> list[Experience]:
+        """Wrap the latest reflection into a storable Experience 📦.
+
+        Skips Round 1 because no previous reflection is available yet.
+        Creates one Experience per call containing the reflection from
+        the previous round (generated by on_round_end).
+
+        Args:
+            snapshot: Structured execution data from the completed round.
+            round_context: Additional context; must include ``round_num``.
+                May include ``namespace``, ``sub_item_id``, ``context_tags``.
+
+        Returns:
+            List with one Experience if a reflection is available,
+            otherwise empty list.
+        """
+        if not self.enabled:
+            return []
+
+        round_num = round_context.get("round_num", 0)
+        if round_num < 2:
+            # 🔇 No previous reflection available for Round 1
+            return []
+
+        if not self._latest_reflection:
+            logger.debug(
+                "🪞 No reflection available for round=%d, skipping produce",
+                round_num,
+            )
+            return []
+
+        reflection = self._latest_reflection
+        insight = self._format_insight(reflection)
+        namespace = round_context.get("namespace", "default")
+        sub_item_id = round_context.get("sub_item_id", "*")
+
+        experience = Experience(
+            namespace=namespace,
+            category="round_reflection",
+            insight=insight,
+            context_tags=round_context.get("context_tags", []),
+            applicable_sub_items=[sub_item_id] if sub_item_id != "*" else ["*"],
+            mechanism_type=MechanismType.ROUND_REFLECTION,
+            source="round_reflection",
+            source_evaluation_id=snapshot.evaluation_id,
+            source_trajectory_step=round_num,
+        )
+
+        logger.info(
+            "🪞 RoundReflectionMechanism produced 1 experience "
+            "from reflection(round=%d) for evaluation_id=%s",
+            reflection.round_number,
+            snapshot.evaluation_id,
+        )
+        return [experience]
+
+    def inject(
+        self,
+        round_context: dict[str, Any],
+    ) -> str | None:
+        """Inject the latest reflection into the next round's prompt 💉.
+
+        Returns formatted reflection markdown if a prior round's
+        reflection is available. Returns None if no reflection has been
+        generated yet (e.g., Round 1).
+
+        Args:
+            round_context: Context including ``round_num``.
+
+        Returns:
+            Markdown reflection text for prompt injection, or None.
+        """
+        if not self.enabled:
+            return None
+        if not self._latest_reflection:
+            return None
+        return self._format_for_focus_prompt(self._latest_reflection)
+
+    async def on_round_end(
+        self,
+        round_num: int,
+        round_record: Any,
+        metrics: Any,
+    ) -> None:
+        """Generate reflection after a round completes 🔴.
+
+        Skips Round 0 (safety guard). Generates a structured reflection
+        analyzing the completed round and stores it for injection into
+        the next round's prompt.
+
+        Args:
+            round_num: The completed round number (1-based).
+            round_record: Full round record from DiscoveryLoop.
+            metrics: Round-level metrics (coverage, cost, etc.).
+        """
+        if not self.enabled:
+            return
+
+        if round_num < 1:
+            return
+
+        logger.debug(
+            "🔴 RoundReflectionMechanism.on_round_end: generating "
+            "reflection for round=%d",
+            round_num,
+        )
+
+        reflection = await self._generate_reflection(
+            round_num=round_num,
+            round_record=round_record,
+            metrics=metrics,
+            previous_reflections=self._reflections,
+        )
+        if reflection:
+            self._reflections.append(reflection)
+            self._latest_reflection = reflection
+            logger.info(
+                "🪞 Reflection generated for round=%d: "
+                "what_worked=%r, strategy=%r",
+                round_num,
+                (reflection.what_worked or "")[:80],
+                (reflection.strategy or "")[:80],
+            )
+
+    async def _generate_reflection(
+        self,
+        round_num: int,
+        round_record: Any,
+        metrics: Any,
+        previous_reflections: list[ReflectionRecord],
+    ) -> ReflectionRecord | None:
+        """Call LLM to generate a structured reflection 🧠.
+
+        Renders the prompt template with round data, calls the LLM,
+        and parses the JSON response into a ReflectionRecord.
+
+        Args:
+            round_num: The completed round number.
+            round_record: Full round record from DiscoveryLoop.
+            metrics: Round-level metrics (coverage, cost, etc.).
+            previous_reflections: Reflections from prior rounds for
+                context (at most the last 3 are included).
+
+        Returns:
+            ReflectionRecord on success, None on LLM or parse failure.
+        """
+        evidence_count = self._extract_evidence_count(metrics)
+        coverage = self._extract_coverage(metrics)
+        tool_summary = self._extract_tool_summary(round_record)
+        previous_reflections_section = self._format_previous_reflections(
+            previous_reflections
+        )
+
+        prompt = self._prompt_template.format(
+            round_num=round_num,
+            evidence_count=evidence_count,
+            coverage=coverage,
+            tool_summary=tool_summary,
+            previous_reflections_section=previous_reflections_section,
+        )
+
+        try:
+            raw_response = await self._llm_fn(prompt)
+            return self._parse_reflection(round_num, raw_response)
+        except Exception as e:
+            logger.warning(
+                "⚠️ Failed to generate reflection for round=%d: %s",
+                round_num,
+                str(e),
+            )
+            return None
+
+    def _parse_reflection(
+        self,
+        round_num: int,
+        raw_response: str,
+    ) -> ReflectionRecord | None:
+        """Parse LLM JSON response into a ReflectionRecord 🔍.
+
+        Extracts JSON from the response (handling markdown code blocks),
+        validates required fields, and constructs the record.
+
+        Args:
+            round_num: The round number this reflection is about.
+            raw_response: Raw LLM output (may contain JSON in code block).
+
+        Returns:
+            ReflectionRecord on success, None if JSON parsing fails.
+        """
+        json_text = raw_response.strip()
+
+        # 🧹 Strip markdown code fences if present
+        code_block = re.search(r"```(?:json)?\s*([\s\S]*?)```", json_text)
+        if code_block:
+            json_text = code_block.group(1).strip()
+
+        try:
+            data = json.loads(json_text)
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "⚠️ Failed to parse reflection JSON for round=%d: %s\n"
+                "Raw response (first 200 chars): %s",
+                round_num,
+                str(e),
+                raw_response[:200],
+            )
+            return None
+
+        return ReflectionRecord(
+            round_number=round_num,
+            what_worked=data.get("what_worked", ""),
+            what_failed=data.get("what_failed", ""),
+            strategy=data.get("strategy", ""),
+            tool_recommendations=data.get("tool_recommendations", {}),
+            priority_gaps=data.get("priority_gaps", []),
+        )
+
+    def _format_for_focus_prompt(self, reflection: ReflectionRecord) -> str:
+        """Format reflection as markdown for focus prompt injection 📝.
+
+        Args:
+            reflection: The ReflectionRecord to format.
+
+        Returns:
+            Multi-line markdown string summarising the reflection.
+        """
+        lines = [f"## ROUND {reflection.round_number} REFLECTION"]
+        if reflection.what_worked:
+            lines.append(f"**What worked:** {reflection.what_worked}")
+        if reflection.what_failed:
+            lines.append(f"**What failed:** {reflection.what_failed}")
+        if reflection.strategy:
+            lines.append(f"**Strategy adjustment:** {reflection.strategy}")
+        if reflection.priority_gaps:
+            gaps = ", ".join(reflection.priority_gaps[:5])
+            lines.append(f"**Priority gaps:** {gaps}")
+        if reflection.tool_recommendations:
+            recs = "; ".join(
+                f"{t}: {r}"
+                for t, r in sorted(reflection.tool_recommendations.items())
+            )
+            lines.append(f"**Tool adjustments:** {recs}")
+        return "\n".join(lines)
+
+    def _format_insight(self, reflection: ReflectionRecord) -> str:
+        """Format reflection as a compact insight string for persistence 💡.
+
+        Used when creating Experience objects. The insight is later
+        injected into future round prompts by the enricher.
+
+        Args:
+            reflection: The ReflectionRecord to format.
+
+        Returns:
+            Pipe-separated string capturing the reflection's key points.
+        """
+        parts: list[str] = []
+        if reflection.what_worked:
+            parts.append(f"Worked: {reflection.what_worked}")
+        if reflection.what_failed:
+            parts.append(f"Failed: {reflection.what_failed}")
+        if reflection.strategy:
+            parts.append(f"Strategy: {reflection.strategy}")
+        return (
+            " | ".join(parts)
+            if parts
+            else f"Round {reflection.round_number} reflection"
+        )
+
+    @staticmethod
+    def _extract_evidence_count(metrics: Any) -> int:
+        """Extract evidence count from a metrics object 📊.
+
+        Args:
+            metrics: Round-level metrics (ResultMetrics or dict-like).
+
+        Returns:
+            Evidence count, or 0 if not available.
+        """
+        if metrics is None:
+            return 0
+        if hasattr(metrics, "evidence_count"):
+            return metrics.evidence_count
+        if isinstance(metrics, dict):
+            return metrics.get("evidence_count", 0)
+        return 0
+
+    @staticmethod
+    def _extract_coverage(metrics: Any) -> float:
+        """Extract checklist coverage from a metrics object 📊.
+
+        Args:
+            metrics: Round-level metrics (ResultMetrics or dict-like).
+
+        Returns:
+            Coverage fraction (0.0–1.0), or 0.0 if not available.
+        """
+        if metrics is None:
+            return 0.0
+        if hasattr(metrics, "checklist_coverage"):
+            return metrics.checklist_coverage
+        if isinstance(metrics, dict):
+            return metrics.get("checklist_coverage", 0.0)
+        return 0.0
+
+    @staticmethod
+    def _extract_tool_summary(round_record: Any) -> str:
+        """Extract a human-readable tool usage summary from round_record 🔧.
+
+        Args:
+            round_record: Full round record from DiscoveryLoop.
+
+        Returns:
+            Comma-separated list of tools with call counts,
+            or 'unknown'/'none recorded' if unavailable.
+        """
+        if round_record is None:
+            return "unknown"
+
+        tool_calls: list[Any] | None = None
+        if hasattr(round_record, "tool_calls"):
+            tool_calls = round_record.tool_calls
+        elif isinstance(round_record, dict):
+            tool_calls = round_record.get("tool_calls")
+
+        if not tool_calls:
+            return "none recorded"
+
+        # 📊 Count calls per tool name
+        tool_counts: dict[str, int] = {}
+        for call in tool_calls:
+            name = ""
+            if hasattr(call, "tool_name"):
+                name = call.tool_name
+            elif isinstance(call, dict):
+                name = call.get("tool_name", "")
+            if name:
+                tool_counts[name] = tool_counts.get(name, 0) + 1
+
+        if not tool_counts:
+            return "none recorded"
+
+        return ", ".join(
+            f"{name}\xd7{count}" for name, count in sorted(tool_counts.items())
+        )
+
+    @staticmethod
+    def _format_previous_reflections(
+        reflections: list[ReflectionRecord],
+    ) -> str:
+        """Format prior reflections as a prompt context section 📋.
+
+        Includes at most the last 3 reflections to limit context size.
+
+        Args:
+            reflections: List of prior ReflectionRecord objects.
+
+        Returns:
+            Formatted section string, or empty string if no prior
+            reflections exist.
+        """
+        if not reflections:
+            return ""
+
+        lines = ["\n## Previous Round Reflections"]
+        for ref in reflections[-3:]:
+            strategy_text = ref.strategy or "(no strategy recorded)"
+            lines.append(f"- Round {ref.round_number}: {strategy_text}")
+        return "\n".join(lines) + "\n"

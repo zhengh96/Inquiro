@@ -1,0 +1,48 @@
+# ============================================================================
+# Inquiro Multi-LLM Ensemble Configuration 🎭
+# ============================================================================
+# Controls parallel multi-model evaluation and result aggregation.
+# When ensemble is enabled, the same EvaluationTask is evaluated by
+# multiple LLMs concurrently, and results are aggregated via weighted voting.
+# ============================================================================
+
+# ✨ Master switch -- set to false to disable ensemble entirely
+enabled: true
+
+# 🎭 Ensemble execution mode:
+#   - "search_once_reason_many": Search once with primary model, fan out
+#     reasoning to all models.  ~1x search cost + Nx lightweight reasoning.
+#   - "parallel_full": Each model runs complete search+reason independently.
+#     Maximally independent but ~3x cost.
+mode: search_once_reason_many
+
+# 📊 Aggregation strategy: "weighted_voting" or "majority_voting"
+strategy: weighted_voting
+
+# 🎯 Minimum consensus ratio to consider the result "agreed upon"
+consensus_threshold: 0.7
+
+# 🔢 Minimum number of models that must succeed for a valid result
+min_successful_models: 2
+
+# 🤖 Model configurations for ensemble evaluation
+# The model with the highest weight is used as the primary search model
+# in "search_once_reason_many" mode.
+models:
+  - name: claude-bedrock
+    provider_key: claude-bedrock
+    weight: 0.40
+    max_turns: 30
+    enabled: true
+
+  - name: gpt-5
+    provider_key: gpt-5
+    weight: 0.30
+    max_turns: 30
+    enabled: true
+
+  - name: gemini-3-pro
+    provider_key: gemini-3-pro
+    weight: 0.30
+    max_turns: 30
+    enabled: true
